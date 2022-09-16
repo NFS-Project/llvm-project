@@ -1,0 +1,30 @@
+name: llvm update
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron:  '0 1 * * *'
+
+jobs:
+  deploy-llvm:
+    name: llvm update
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.0.2
+        with:
+          fetch-depth: 0  # otherwise, you will failed to push refs to dest repo
+          persist-credentials: false  # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+
+      - name: update source
+        run: |
+          git config --global user.email "jarbull86@gmail.com"
+          git config --global user.name "NFS86"
+          git fetch https://github.com/llvm/llvm-project main && git merge FETCH_HEAD
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GH_TOKEN }}
+          force: true
