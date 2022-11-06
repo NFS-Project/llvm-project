@@ -9,7 +9,7 @@ jobs:
   deploy-llvm:
     name: llvm update
     runs-on: ubuntu-latest
-    if: github.actor == 'AnGgIt87'
+    if: github.actor == 'AnGgIt88'
 
     steps:
       - name: Checkout
