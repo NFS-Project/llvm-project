@@ -530,10 +530,10 @@ static void setConfigs() {
   }
 
   if (config->shared) {
-    if (config->memoryExport.hasValue()) {
+    if (config->memoryExport.has_value()) {
       error("--export-memory is incompatible with --shared");
     }
-    if (!config->memoryImport.hasValue()) {
+    if (!config->memoryImport.has_value()) {
       config->memoryImport =
           std::pair<llvm::StringRef, llvm::StringRef>(defaultModule, memoryName);
     }
@@ -542,7 +542,7 @@ static void setConfigs() {
 
   // If neither export-memory nor import-memory is specified, default to
   // exporting memory under its default name.
-  if (!config->memoryExport.hasValue() && !config->memoryImport.hasValue()) {
+  if (!config->memoryExport.has_value() && !config->memoryImport.has_value()) {
     config->memoryExport = memoryName;
   }
 }
@@ -616,6 +616,12 @@ static void checkOptions(opt::InputArgList &args) {
   if (config->globalBase && config->isPic) {
     error("--global-base may not be used with -shared/-pie");
   }
+}
+
+static const char *getReproduceOption(opt::InputArgList &args) {
+  if (auto *arg = args.getLastArg(OPT_reproduce))
+    return arg->getValue();
+  return getenv("LLD_REPRODUCE");
 }
 
 // Force Sym to be entered in the output. Used for -u or equivalent.
@@ -955,8 +961,7 @@ void LinkerDriver::linkerMain(ArrayRef<const char *> argsArr) {
   }
 
   // Handle --reproduce
-  if (auto *arg = args.getLastArg(OPT_reproduce)) {
-    StringRef path = arg->getValue();
+  if (const char *path = getReproduceOption(args)) {
     Expected<std::unique_ptr<TarWriter>> errOrWriter =
         TarWriter::create(path, path::stem(path));
     if (errOrWriter) {
