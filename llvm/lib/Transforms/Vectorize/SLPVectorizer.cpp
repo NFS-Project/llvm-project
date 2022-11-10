@@ -290,15 +290,17 @@ static Optional<unsigned> getInsertIndex(const Value *InsertInst,
                                          unsigned Offset = 0) {
   int Index = Offset;
   if (const auto *IE = dyn_cast<InsertElementInst>(InsertInst)) {
-    if (const auto *CI = dyn_cast<ConstantInt>(IE->getOperand(2))) {
-      auto *VT = cast<FixedVectorType>(IE->getType());
-      if (CI->getValue().uge(VT->getNumElements()))
-        return None;
-      Index *= VT->getNumElements();
-      Index += CI->getZExtValue();
-      return Index;
-    }
-    return None;
+    const auto *VT = dyn_cast<FixedVectorType>(IE->getType());
+    if (!VT)
+      return None;
+    const auto *CI = dyn_cast<ConstantInt>(IE->getOperand(2));
+    if (!CI)
+      return None;
+    if (CI->getValue().uge(VT->getNumElements()))
+      return None;
+    Index *= VT->getNumElements();
+    Index += CI->getZExtValue();
+    return Index;
   }
 
   const auto *IV = cast<InsertValueInst>(InsertInst);
@@ -3810,8 +3812,10 @@ static bool areTwoInsertFromSameBuildVector(
     return false;
   auto *IE1 = VU;
   auto *IE2 = V;
-  unsigned Idx1 = *getInsertIndex(IE1);
-  unsigned Idx2 = *getInsertIndex(IE2);
+  Optional<unsigned> Idx1 = getInsertIndex(IE1);
+  Optional<unsigned> Idx2 = getInsertIndex(IE2);
+  if (Idx1 == None || Idx2 == None)
+    return false;
   // Go through the vector operand of insertelement instructions trying to find
   // either VU as the original vector for IE2 or V as the original vector for
   // IE1.
@@ -3822,14 +3826,14 @@ static bool areTwoInsertFromSameBuildVector(
       return V->hasOneUse();
     if (IE1) {
       if ((IE1 != VU && !IE1->hasOneUse()) ||
-          getInsertIndex(IE1).value_or(Idx2) == Idx2)
+          getInsertIndex(IE1).value_or(*Idx2) == *Idx2)
         IE1 = nullptr;
       else
         IE1 = dyn_cast_or_null<InsertElementInst>(GetBaseOperand(IE1));
     }
     if (IE2) {
       if ((IE2 != V && !IE2->hasOneUse()) ||
-          getInsertIndex(IE2).value_or(Idx1) == Idx1)
+          getInsertIndex(IE2).value_or(*Idx1) == *Idx1)
         IE2 = nullptr;
       else
         IE2 = dyn_cast_or_null<InsertElementInst>(GetBaseOperand(IE2));
@@ -3903,7 +3907,7 @@ Optional<BoUpSLP::OrdersType> BoUpSLP::getReorderingData(const TreeEntry &TE,
     return TE.ReorderIndices;
   if (TE.State == TreeEntry::Vectorize && TE.getOpcode() == Instruction::PHI) {
     auto PHICompare = [](llvm::Value *V1, llvm::Value *V2) {
-      if (V1->user_empty() || V2->user_empty())
+      if (!V1->hasOneUse() || !V2->hasOneUse())
         return false;
       auto *FirstUserOfPhi1 = cast<Instruction>(*V1->user_begin());
       auto *FirstUserOfPhi2 = cast<Instruction>(*V2->user_begin());
@@ -4146,7 +4150,7 @@ void BoUpSLP::reorderTopToBottom() {
             return It->second;
         }
         if (OpTE->State == TreeEntry::Vectorize &&
-            isa<PHINode>(OpTE->getMainOp())) {
+            OpTE->getOpcode() == Instruction::PHI) {
           auto It = PhisToOrders.find(OpTE);
           if (It != PhisToOrders.end())
             return It->second;
@@ -6698,7 +6702,8 @@ InstructionCost BoUpSLP::getEntryCost(const TreeEntry *E,
           if (Mask[I] != UndefMaskElem)
             Mask[I] = I + VecSz;
         for (unsigned I = OffsetEnd + 1 - Offset; I < VecSz; ++I)
-          Mask[I] = InMask.test(I) ? UndefMaskElem : I;
+          Mask[I] =
+              ((I >= InMask.size()) || InMask.test(I)) ? UndefMaskElem : I;
         Cost += TTI->getShuffleCost(TTI::SK_PermuteTwoSrc, InsertVecTy, Mask);
       }
     }
@@ -7279,12 +7284,11 @@ namespace {
 /// value, otherwise.
 struct ValueSelect {
   template <typename U>
-  static std::enable_if_t<std::is_same<Value *, U>::value, Value *>
-  get(Value *V) {
+  static std::enable_if_t<std::is_same_v<Value *, U>, Value *> get(Value *V) {
     return V;
   }
   template <typename U>
-  static std::enable_if_t<!std::is_same<Value *, U>::value, U> get(Value *) {
+  static std::enable_if_t<!std::is_same_v<Value *, U>, U> get(Value *) {
     return U();
   }
 };
