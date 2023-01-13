@@ -688,12 +688,12 @@ struct FormatStyle {
     ///   };
     /// \endcode
     SLS_Empty,
-    /// Merge lambda into a single line if argument of a function.
+    /// Merge lambda into a single line if the lambda is argument of a function.
     /// \code
-    ///   auto lambda = [](int a) {
-    ///       return a;
+    ///   auto lambda = [](int x, int y) {
+    ///       return x < y;
     ///   };
-    ///   sort(a.begin(), a.end(), []() { return x < y; });
+    ///   sort(a.begin(), a.end(), [](int x, int y) { return x < y; });
     /// \endcode
     SLS_Inline,
     /// Merge all lambdas fitting on a single line.
@@ -1220,6 +1220,36 @@ struct FormatStyle {
   /// \endcode
   /// \version 3.8
   BraceWrappingFlags BraceWrapping;
+
+  /// Different ways to break after attributes.
+  enum AttributeBreakingStyle : int8_t {
+    /// Always break after attributes.
+    /// \code
+    ///   [[nodiscard]]
+    ///   inline int f();
+    ///   [[gnu::const]] [[nodiscard]]
+    ///   int g();
+    /// \endcode
+    ABS_Always,
+    /// Leave the line breaking after attributes as is.
+    /// \code
+    ///   [[nodiscard]] inline int f();
+    ///   [[gnu::const]] [[nodiscard]]
+    ///   int g();
+    /// \endcode
+    ABS_Leave,
+    /// Never break after attributes.
+    /// \code
+    ///   [[nodiscard]] inline int f();
+    ///   [[gnu::const]] [[nodiscard]] int g();
+    /// \endcode
+    ABS_Never,
+  };
+
+  /// Break after a group of C++11 attributes before a function
+  /// declaration/definition name.
+  /// \version 16
+  AttributeBreakingStyle BreakAfterAttributes;
 
   /// If ``true``, clang-format will always break after a Json array `[`
   /// otherwise it will scan until the closing `]` to determine if it should add
@@ -2121,14 +2151,17 @@ struct FormatStyle {
   bool ExperimentalAutoDetectBinPacking;
 
   /// If ``true``, clang-format adds missing namespace end comments for
-  /// short namespaces and fixes invalid existing ones. Short ones are
-  /// controlled by "ShortNamespaceLines".
+  /// namespaces and fixes invalid existing ones. This doesn't affect short
+  /// namespaces, which are controlled by ``ShortNamespaceLines``.
   /// \code
   ///    true:                                  false:
-  ///    namespace a {                  vs.     namespace a {
-  ///    foo();                                 foo();
-  ///    bar();                                 bar();
+  ///    namespace longNamespace {      vs.     namespace longNamespace {
+  ///    void foo();                            void foo();
+  ///    void bar();                            void bar();
   ///    } // namespace a                       }
+  ///    namespace shortNamespace {             namespace shortNamespace {
+  ///    void baz();                            void baz();
+  ///    }                                      }
   /// \endcode
   /// \version 5
   bool FixNamespaceComments;
@@ -2417,6 +2450,10 @@ struct FormatStyle {
   /// \version 15
   bool InsertBraces;
 
+  /// Insert a newline at end of file if missing.
+  /// \version 16
+  bool InsertNewlineAtEOF;
+
   /// The style of inserting trailing commas into container literals.
   enum TrailingCommaStyle : int8_t {
     /// Do not insert trailing commas.
@@ -2446,6 +2483,51 @@ struct FormatStyle {
   /// \endcode
   /// \version 11
   TrailingCommaStyle InsertTrailingCommas;
+
+  /// Separator format of integer literals of different bases.
+  ///
+  /// If negative, remove separators. If  ``0``, leave the literal as is. If
+  /// positive, insert separators between digits starting from the rightmost
+  /// digit.
+  ///
+  /// For example, the config below will leave separators in binary literals
+  /// alone, insert separators in decimal literals to separate the digits into
+  /// groups of 3, and remove separators in hexadecimal literals.
+  /// \code
+  ///   IntegerLiteralSeparator:
+  ///     Binary: 0
+  ///     Decimal: 3
+  ///     Hex: -1
+  /// \endcode
+  struct IntegerLiteralSeparatorStyle {
+    /// Format separators in binary literals.
+    /// \code{.text}
+    ///   /* -1: */ b = 0b100111101101;
+    ///   /*  0: */ b = 0b10011'11'0110'1;
+    ///   /*  3: */ b = 0b100'111'101'101;
+    ///   /*  4: */ b = 0b1001'1110'1101;
+    /// \endcode
+    int8_t Binary;
+    /// Format separators in decimal literals.
+    /// \code{.text}
+    ///   /* -1: */ d = 18446744073709550592ull;
+    ///   /*  0: */ d = 184467'440737'0'95505'92ull;
+    ///   /*  3: */ d = 18'446'744'073'709'550'592ull;
+    /// \endcode
+    int8_t Decimal;
+    /// Format separators in hexadecimal literals.
+    /// \code{.text}
+    ///   /* -1: */ h = 0xDEADBEEFDEADBEEFuz;
+    ///   /*  0: */ h = 0xDEAD'BEEF'DE'AD'BEE'Fuz;
+    ///   /*  2: */ h = 0xDE'AD'BE'EF'DE'AD'BE'EFuz;
+    /// \endcode
+    int8_t Hex;
+  };
+
+  /// Format integer literal separators (``'`` for C++ and ``_`` for C#, Java,
+  /// and JavaScript).
+  /// \version 16
+  IntegerLiteralSeparatorStyle IntegerLiteralSeparator;
 
   /// A vector of prefixes ordered by the desired groups for Java imports.
   ///
@@ -2833,7 +2915,7 @@ struct FormatStyle {
   };
 
   /// The pack constructor initializers style to use.
-  /// \version 14;
+  /// \version 14
   PackConstructorInitializersStyle PackConstructorInitializers;
 
   /// The penalty for breaking around an assignment operator.
@@ -2967,6 +3049,7 @@ struct FormatStyle {
   ///   * const
   ///   * inline
   ///   * static
+  ///   * friend
   ///   * constexpr
   ///   * volatile
   ///   * restrict
@@ -3070,7 +3153,9 @@ struct FormatStyle {
   ReferenceAlignmentStyle ReferenceAlignment;
 
   // clang-format off
-  /// If ``true``, clang-format will attempt to re-flow comments.
+  /// If ``true``, clang-format will attempt to re-flow comments. That is it
+  /// will touch a comment and *reflow* long comments into new lines, trying to
+  /// obey the ``ColumnLimit``.
   /// \code
   ///    false:
   ///    // veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongComment with plenty of information
@@ -3821,7 +3906,7 @@ struct FormatStyle {
   /// \version 3.7
   bool SpacesInCStyleCastParentheses;
 
-  /// Control of spaces within a single line comment
+  /// Control of spaces within a single line comment.
   struct SpacesInLineComment {
     /// The minimum number of spaces at the start of the comment.
     unsigned Minimum;
@@ -3858,6 +3943,8 @@ struct FormatStyle {
   ///   ///  - Foo                                /// - Foo
   ///   ///    - Bar                              ///   - Bar
   /// \endcode
+  ///
+  /// This option has only effect if ``ReflowComments`` is set to ``true``.
   /// \version 13
   SpacesInLineComment SpacesInLineCommentPrefix;
 
@@ -4040,6 +4127,7 @@ struct FormatStyle {
            BinPackArguments == R.BinPackArguments &&
            BinPackParameters == R.BinPackParameters &&
            BitFieldColonSpacing == R.BitFieldColonSpacing &&
+           BreakAfterAttributes == R.BreakAfterAttributes &&
            BreakAfterJavaFieldAnnotations == R.BreakAfterJavaFieldAnnotations &&
            BreakArrays == R.BreakArrays &&
            BreakBeforeBinaryOperators == R.BreakBeforeBinaryOperators &&
@@ -4080,6 +4168,12 @@ struct FormatStyle {
            IndentRequiresClause == R.IndentRequiresClause &&
            IndentWidth == R.IndentWidth &&
            IndentWrappedFunctionNames == R.IndentWrappedFunctionNames &&
+           InsertBraces == R.InsertBraces &&
+           InsertNewlineAtEOF == R.InsertNewlineAtEOF &&
+           IntegerLiteralSeparator.Binary == R.IntegerLiteralSeparator.Binary &&
+           IntegerLiteralSeparator.Decimal ==
+               R.IntegerLiteralSeparator.Decimal &&
+           IntegerLiteralSeparator.Hex == R.IntegerLiteralSeparator.Hex &&
            JavaImportGroups == R.JavaImportGroups &&
            JavaScriptQuotes == R.JavaScriptQuotes &&
            JavaScriptWrapImports == R.JavaScriptWrapImports &&

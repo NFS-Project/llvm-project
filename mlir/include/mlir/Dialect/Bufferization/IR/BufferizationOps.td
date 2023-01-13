@@ -81,7 +81,7 @@ def Bufferization_AllocTensorOp : Bufferization_Op<"alloc_tensor",
   let arguments = (ins Variadic<Index>:$dynamic_sizes,
                        Optional<AnyTensor>:$copy,
                        Optional<Index>:$size_hint,
-                       OptionalAttr<UI64Attr>:$memory_space);
+                       OptionalAttr<AnyAttr>:$memory_space);
 
   let results = (outs AnyTensor:$result);
 
@@ -293,12 +293,6 @@ def Bufferization_ToTensorOp : Bufferization_Op<"to_tensor", [
   let arguments = (ins Arg<AnyRankedOrUnrankedMemRef,
                        "the reference to load from", [MemRead]>:$memref);
   let results = (outs AnyTensor:$result);
-
-  let builders = [
-    OpBuilder<(ins "Value":$memref), [{
-      $_state.addOperands(memref);
-      $_state.addTypes(memref::getTensorTypeFromMemRefType(memref.getType()));
-    }]>];
 
   let extraClassDeclaration = [{
     /// The result of a to_tensor is always a tensor.

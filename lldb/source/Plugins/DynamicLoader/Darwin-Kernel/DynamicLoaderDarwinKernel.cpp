@@ -321,8 +321,8 @@ DynamicLoaderDarwinKernel::SearchForKernelNearPC(Process *process) {
   // Round the current pc down to the nearest page boundary.
   addr_t addr = pc & ~(pagesize - 1ULL);
 
-  // Search backwards for 32 megabytes, or first memory read error.
-  while (pc - addr < 32 * 0x100000) {
+  // Search backwards for 128 megabytes, or first memory read error.
+  while (pc - addr < 128 * 0x100000) {
     bool read_error;
     if (CheckForKernelImageAtAddress(addr, process, &read_error).IsValid())
       return addr;
@@ -511,7 +511,7 @@ DynamicLoaderDarwinKernel::DynamicLoaderDarwinKernel(Process *process,
   process->SetCanRunCode(false);
   PlatformSP platform_sp =
       process->GetTarget().GetDebugger().GetPlatformList().Create(
-          PlatformDarwinKernel::GetPluginNameStatic());
+          PlatformDarwinKernel::GetPluginNameStatic(), /*metadata = */ nullptr);
   if (platform_sp.get())
     process->GetTarget().SetPlatform(platform_sp);
 }

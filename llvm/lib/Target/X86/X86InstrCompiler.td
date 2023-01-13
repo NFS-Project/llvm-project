@@ -260,7 +260,7 @@ let isPseudo = 1, SchedRW = [WriteSystem] in {
 // Pseudo instructions used by KCFI.
 //===----------------------------------------------------------------------===//
 let
-  Defs = [R10, EFLAGS] in {
+  Defs = [R10, R11, EFLAGS] in {
 def KCFI_CHECK : PseudoI<
   (outs), (ins GR64:$ptr, i32imm:$type), []>, Sched<[]>;
 }
@@ -680,11 +680,6 @@ def OR32mi8Locked  : Ii8<0x83, MRM1m, (outs), (ins i32mem:$dst, i32i8imm:$zero),
                          "or{l}\t{$zero, $dst|$dst, $zero}", []>,
                          Requires<[Not64BitMode]>, OpSize32, LOCK,
                          Sched<[WriteALURMW]>;
-
-let hasSideEffects = 1, isMeta = 1 in
-def Int_MemBarrier : I<0, Pseudo, (outs), (ins),
-                     "#MEMBARRIER",
-                     [(X86MemBarrier)]>, Sched<[WriteLoad]>;
 
 // RegOpc corresponds to the mr version of the instruction
 // ImmOpc corresponds to the mi version of the instruction

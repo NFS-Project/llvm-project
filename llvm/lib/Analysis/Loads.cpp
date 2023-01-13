@@ -267,7 +267,7 @@ bool llvm::isDereferenceableAndAlignedInLoop(LoadInst *LI, Loop *L,
   Value *Ptr = LI->getPointerOperand();
 
   APInt EltSize(DL.getIndexTypeSizeInBits(Ptr->getType()),
-                DL.getTypeStoreSize(LI->getType()).getFixedSize());
+                DL.getTypeStoreSize(LI->getType()).getFixedValue());
   const Align Alignment = LI->getAlign();
 
   Instruction *HeaderFirstNonPHI = L->getHeader()->getFirstNonPHI();
@@ -359,7 +359,7 @@ bool llvm::isSafeToLoadUnconditionally(Value *V, Align Alignment, APInt &Size,
     // If we see a free or a call which may write to memory (i.e. which might do
     // a free) the pointer could be marked invalid.
     if (isa<CallInst>(BBI) && BBI->mayWriteToMemory() &&
-        !isa<DbgInfoIntrinsic>(BBI))
+        !isa<LifetimeIntrinsic>(BBI) && !isa<DbgInfoIntrinsic>(BBI))
       return false;
 
     Value *AccessedPtr;
@@ -539,7 +539,7 @@ static Value *getAvailableLoadStore(Instruction *Inst, const Value *Ptr,
       return nullptr;
 
     // Make sure the read bytes are contained in the memset.
-    uint64_t LoadSize = LoadTypeSize.getFixedSize();
+    uint64_t LoadSize = LoadTypeSize.getFixedValue();
     if ((Len->getValue() * 8).ult(LoadSize))
       return nullptr;
 

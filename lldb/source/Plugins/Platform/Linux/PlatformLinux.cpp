@@ -41,8 +41,9 @@ LLDB_PLUGIN_DEFINE(PlatformLinux)
 
 static uint32_t g_initialize_count = 0;
 
-
-PlatformSP PlatformLinux::CreateInstance(bool force, const ArchSpec *arch) {
+PlatformSP PlatformLinux::CreateInstance(bool force, const ArchSpec *arch,
+                                         const Debugger *debugger,
+                                         const ScriptedMetadata *metadata) {
   Log *log = GetLog(LLDBLog::Platform);
   LLDB_LOG(log, "force = {0}, arch=({1}, {2})", force,
            arch ? arch->GetArchitectureName() : "<null>",
@@ -312,9 +313,12 @@ MmapArgList PlatformLinux::GetMmapArgumentList(const ArchSpec &arch,
 }
 
 CompilerType PlatformLinux::GetSiginfoType(const llvm::Triple &triple) {
-  if (!m_type_system_up)
-    m_type_system_up.reset(new TypeSystemClang("siginfo", triple));
-  TypeSystemClang *ast = m_type_system_up.get();
+  {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    if (!m_type_system)
+      m_type_system = std::make_shared<TypeSystemClang>("siginfo", triple);
+  }
+  TypeSystemClang *ast = m_type_system.get();
 
   bool si_errno_then_code = true;
 

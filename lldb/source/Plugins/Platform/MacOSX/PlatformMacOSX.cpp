@@ -17,6 +17,7 @@
 #include "PlatformRemoteAppleWatch.h"
 #endif
 #include "lldb/Breakpoint/BreakpointLocation.h"
+#include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleList.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -89,7 +90,9 @@ llvm::StringRef PlatformMacOSX::GetDescriptionStatic() {
   return "Local Mac OS X user platform plug-in.";
 }
 
-PlatformSP PlatformMacOSX::CreateInstance(bool force, const ArchSpec *arch) {
+PlatformSP PlatformMacOSX::CreateInstance(bool force, const ArchSpec *arch,
+                                          const Debugger *debugger,
+                                          const ScriptedMetadata *metadata) {
   // The only time we create an instance is when we are creating a remote
   // macosx platform which is handled by PlatformRemoteMacOSX.
   return PlatformSP();
@@ -123,8 +126,14 @@ ConstString PlatformMacOSX::GetSDKDirectory(lldb_private::Target &target) {
   }
 
   // Use the default SDK as a fallback.
-  FileSpec fspec(
-      HostInfo::GetXcodeSDKPath(lldb_private::XcodeSDK::GetAnyMacOS()));
+  auto sdk_path_or_err = HostInfo::GetXcodeSDKPath(XcodeSDK::GetAnyMacOS());
+  if (!sdk_path_or_err) {
+    Debugger::ReportError("Error while searching for Xcode SDK: " +
+                          toString(sdk_path_or_err.takeError()));
+    return {};
+  }
+
+  FileSpec fspec(*sdk_path_or_err);
   if (fspec) {
     if (FileSystem::Instance().Exists(fspec))
       return ConstString(fspec.GetPath());

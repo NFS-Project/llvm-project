@@ -35,9 +35,9 @@
 
 #include "mlir/Dialect/SparseTensor/IR/Enums.h"
 #include "mlir/ExecutionEngine/Float16bits.h"
+#include "mlir/ExecutionEngine/SparseTensor/ArithmeticUtils.h"
 #include "mlir/ExecutionEngine/SparseTensor/Attributes.h"
 #include "mlir/ExecutionEngine/SparseTensor/COO.h"
-#include "mlir/ExecutionEngine/SparseTensor/CheckedMul.h"
 #include "mlir/ExecutionEngine/SparseTensor/ErrorHandling.h"
 
 namespace mlir {
@@ -51,6 +51,8 @@ class SparseTensorEnumeratorBase;
 
 // These macros ensure consistent error messages, without risk of incuring
 // an additional method call to do so.
+#define ASSERT_VALID_DIM(d)                                                    \
+  assert(d < getDimRank() && "Dimension index is out of bounds");
 #define ASSERT_VALID_LVL(l)                                                    \
   assert(l < getLvlRank() && "Level index is out of bounds");
 #define ASSERT_COMPRESSED_LVL(l)                                               \
@@ -152,6 +154,12 @@ public:
 
   /// Gets the tensor-dimension sizes array.
   const std::vector<uint64_t> &getDimSizes() const { return dimSizes; }
+
+  /// Safely looks up the size of the given tensor-dimension.
+  uint64_t getDimSize(uint64_t d) const {
+    ASSERT_VALID_DIM(d);
+    return dimSizes[d];
+  }
 
   /// Gets the storage-level sizes array.
   const std::vector<uint64_t> &getLvlSizes() const { return lvlSizes; }
@@ -509,9 +517,10 @@ private:
   /// the previous position and smaller than `indices[l].capacity()`).
   void appendPointer(uint64_t l, uint64_t pos, uint64_t count = 1) {
     ASSERT_COMPRESSED_LVL(l);
-    assert(pos <= std::numeric_limits<P>::max() &&
-           "Pointer value is too large for the P-type");
-    pointers[l].insert(pointers[l].end(), count, static_cast<P>(pos));
+    // TODO: we'd like to recover the nicer error message:
+    // "Pointer value is too large for the P-type"
+    pointers[l].insert(pointers[l].end(), count,
+                       detail::checkOverflowCast<P>(pos));
   }
 
   /// Appends index `i` to level `l`, in the semantically general sense.
@@ -526,9 +535,9 @@ private:
   void appendIndex(uint64_t l, uint64_t full, uint64_t i) {
     const auto dlt = getLvlType(l); // Avoid redundant bounds checking.
     if (isCompressedDLT(dlt) || isSingletonDLT(dlt)) {
-      assert(i <= std::numeric_limits<I>::max() &&
-             "Index value is too large for the I-type");
-      indices[l].push_back(static_cast<I>(i));
+      // TODO: we'd like to recover the nicer error message:
+      // "Index value is too large for the I-type"
+      indices[l].push_back(detail::checkOverflowCast<I>(i));
     } else { // Dense dimension.
       ASSERT_DENSE_DLT(dlt);
       assert(i >= full && "Index was already filled");
@@ -551,9 +560,9 @@ private:
     // entry has been initialized; thus we must be sure to check `size()`
     // here, instead of `capacity()` as would be ideal.
     assert(pos < indices[l].size() && "Index position is out of bounds");
-    assert(i <= std::numeric_limits<I>::max() &&
-           "Index value is too large for the I-type");
-    indices[l][pos] = static_cast<I>(i);
+    // TODO: we'd like to recover the nicer error message:
+    // "Index value is too large for the I-type"
+    indices[l][pos] = detail::checkOverflowCast<I>(i);
   }
 
   /// Computes the assembled-size associated with the `l`-th level,
@@ -693,6 +702,7 @@ private:
 #undef ASSERT_COMPRESSED_OR_SINGLETON_LVL
 #undef ASSERT_COMPRESSED_LVL
 #undef ASSERT_VALID_LVL
+#undef ASSERT_VALID_DIM
 
 //===----------------------------------------------------------------------===//
 /// A (higher-order) function object for enumerating the elements of some
@@ -952,8 +962,7 @@ SparseTensorStorage<P, I, V> *SparseTensorStorage<P, I, V>::newFromCOO(
   std::vector<uint64_t> dimSizes(dimRank);
   for (uint64_t l = 0; l < lvlRank; ++l) {
     const uint64_t d = lvl2dim[l];
-    const uint64_t sz = dimShape[d];
-    assert((sz == 0 || sz == lvlSizes[l]) &&
+    assert((dimShape[d] == 0 || dimShape[d] == lvlSizes[l]) &&
            "Dimension sizes do not match expected shape");
     dimSizes[d] = lvlSizes[l];
   }

@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef LLDB_SOURCE_PLUGINS_PLATFORM_QEMUUSER_PLATFORMQEMUUSER_H
+#define LLDB_SOURCE_PLUGINS_PLATFORM_QEMUUSER_PLATFORMQEMUUSER_H
+
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Target/Platform.h"
@@ -67,10 +70,14 @@ public:
   }
 
 private:
-  static lldb::PlatformSP CreateInstance(bool force, const ArchSpec *arch);
+  static lldb::PlatformSP CreateInstance(bool force, const ArchSpec *arch,
+                                         const Debugger *debugger,
+                                         const ScriptedMetadata *metadata);
   static void DebuggerInitialize(Debugger &debugger);
 
   PlatformQemuUser() : Platform(/*is_host=*/true) {}
 };
 
 } // namespace lldb_private
+
+#endif // LLDB_SOURCE_PLUGINS_PLATFORM_QEMUUSER_PLATFORMQEMUUSER_H

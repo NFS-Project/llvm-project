@@ -128,8 +128,16 @@ private:
   void replaceFrameIndices(MachineFunction &MF);
   void replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
                            int &SPAdj);
+  // Frame indices in debug values are encoded in a target independent
+  // way with simply the frame index and offset rather than any
+  // target-specific addressing mode.
   bool replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
                                    unsigned OpIdx, int SPAdj = 0);
+  // Does same as replaceFrameIndices but using the backward MIR walk and
+  // backward register scavenger walk. Does not yet support call sequence
+  // processing.
+  void replaceFrameIndicesBackward(MachineBasicBlock *BB, MachineFunction &MF,
+                                   int &SPAdj);
 
   void insertPrologEpilogCode(MachineFunction &MF);
   void insertZeroCallUsedRegs(MachineFunction &MF);
@@ -601,7 +609,7 @@ static void insertCSRSaves(MachineBasicBlock &SaveBlock,
       } else {
         const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
         TII.storeRegToStackSlot(SaveBlock, I, Reg, true, CS.getFrameIdx(), RC,
-                                TRI);
+                                TRI, Register());
       }
     }
   }
@@ -627,7 +635,8 @@ static void insertCSRRestores(MachineBasicBlock &RestoreBlock,
           .addReg(CI.getDstReg(), getKillRegState(true));
       } else {
         const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-        TII.loadRegFromStackSlot(RestoreBlock, I, Reg, CI.getFrameIdx(), RC, TRI);
+        TII.loadRegFromStackSlot(RestoreBlock, I, Reg, CI.getFrameIdx(), RC,
+                                 TRI, Register());
         assert(I != RestoreBlock.begin() &&
                "loadRegFromStackSlot didn't insert any code!");
         // Insert in reverse order.  loadRegFromStackSlot can insert
@@ -1274,7 +1283,13 @@ void PEI::insertZeroCallUsedRegs(MachineFunction &MF) {
         if (!MO.isReg())
           continue;
 
-        for (MCPhysReg SReg : TRI.sub_and_superregs_inclusive(MO.getReg()))
+        MCRegister Reg = MO.getReg();
+
+        // This picks up sibling registers (e.q. %al -> %ah).
+        for (MCRegUnitIterator Unit(Reg, &TRI); Unit.isValid(); ++Unit)
+          RegsToZero.reset(*Unit);
+
+        for (MCPhysReg SReg : TRI.sub_and_superregs_inclusive(Reg))
           RegsToZero.reset(SReg);
       }
     }
@@ -1438,6 +1453,72 @@ bool PEI::replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
   return false;
 }
 
+void PEI::replaceFrameIndicesBackward(MachineBasicBlock *BB,
+                                      MachineFunction &MF, int &SPAdj) {
+  assert(MF.getSubtarget().getRegisterInfo() &&
+         "getRegisterInfo() must be implemented!");
+
+  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+
+  RS->enterBasicBlockEnd(*BB);
+
+  for (MachineInstr &MI : make_early_inc_range(reverse(*BB))) {
+
+    // Register scavenger backward step
+    MachineBasicBlock::iterator Step(MI);
+    for (unsigned i = 0; i != MI.getNumOperands(); ++i) {
+      if (!MI.getOperand(i).isFI())
+        continue;
+
+      if (replaceFrameIndexDebugInstr(MF, MI, i, SPAdj))
+        continue;
+
+      // If this instruction has a FrameIndex operand, we need to
+      // use that target machine register info object to eliminate
+      // it.
+
+      // TRI.eliminateFrameIndex may lower the frame index to a sequence of
+      // instructions. It also can remove/change instructions passed by the
+      // iterator and invalidate the iterator. We have to take care of this. For
+      // that we support two iterators: *Step* - points to the position up to
+      // which the scavenger should scan by the next iteration to have liveness
+      // information up to date. *Curr* - keeps track of the correct RS->MBBI -
+      // the scan start point. It points to the currently processed instruction
+      // right before the frame lowering.
+      //
+      // ITERATORS WORK AS FOLLOWS:
+      // *Step* is shifted one step back right before the frame lowering and
+      // one step forward right after it. No matter how many instructions were
+      // inserted, *Step* will be right after the position which is going to be
+      // processed in the next iteration, thus, in the correct position for the
+      // scavenger to go up to.
+      // *Curr* is shifted one step forward right before calling
+      // TRI.eliminateFrameIndex and one step backward after. Thus, we make sure
+      // it points right to the position that is the correct starting point for
+      // the scavenger to scan.
+      MachineBasicBlock::iterator Curr = ++RS->getCurrentPosition();
+
+      // Shift back
+      --Step;
+
+      bool Removed = TRI.eliminateFrameIndex(MI, SPAdj, i, RS);
+      // Restore to unify logic with a shift back that happens in the end of
+      // the outer loop.
+      ++Step;
+      RS->skipTo(--Curr);
+      if (Removed)
+        break;
+    }
+
+    // Shift it to make RS collect reg info up to the current instruction.
+    if (Step != BB->begin())
+      Step--;
+
+    // Update register states.
+    RS->backward(Step);
+  }
+}
+
 void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
                               int &SPAdj) {
   assert(MF.getSubtarget().getRegisterInfo() &&
@@ -1445,6 +1526,9 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
+
+  if (RS && TRI.supportsBackwardScavenger())
+    return replaceFrameIndicesBackward(BB, MF, SPAdj);
 
   if (RS && FrameIndexEliminationScavenging)
     RS->enterBasicBlock(*BB);
@@ -1466,9 +1550,6 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
       if (!MI.getOperand(i).isFI())
         continue;
 
-      // Frame indices in debug values are encoded in a target independent
-      // way with simply the frame index and offset rather than any
-      // target-specific addressing mode.
       if (replaceFrameIndexDebugInstr(MF, MI, i, SPAdj))
         continue;
 

@@ -20,17 +20,20 @@ class ScriptedProcess(metaclass=ABCMeta):
     metadata = None
 
     @abstractmethod
-    def __init__(self, target, args):
+    def __init__(self, exe_ctx, args):
         """ Construct a scripted process.
 
         Args:
-            target (lldb.SBTarget): The target launching the scripted process.
+            exe_ctx (lldb.SBExecutionContext): The execution context for the scripted process.
             args (lldb.SBStructuredData): A Dictionary holding arbitrary
                 key/value pairs used by the scripted process.
         """
+        target = None
         self.target = None
         self.args = None
         self.arch = None
+        if isinstance(exe_ctx, lldb.SBExecutionContext):
+            target = exe_ctx.target
         if isinstance(target, lldb.SBTarget) and target.IsValid():
             self.target = target
             triple = self.target.triple
@@ -98,13 +101,14 @@ class ScriptedProcess(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def read_memory_at_address(self, addr, size):
+    def read_memory_at_address(self, addr, size, error):
         """ Get a memory buffer from the scripted process at a certain address,
             of a certain size.
 
         Args:
             addr (int): Address from which we should start reading.
             size (int): Size of the memory to read.
+            error (lldb.SBError): Error object.
 
         Returns:
             lldb.SBData: An `lldb.SBData` buffer with the target byte size and
