@@ -376,15 +376,16 @@ fir::ExtendedValue Fortran::lower::genCallOpAndResult(
   }
 
   if (allocatedResult) {
-    // 7.5.6.3 point 5. Derived-type finalization.
+    // 7.5.6.3 point 5. Derived-type finalization for nonpointer function.
     // Check if the derived-type is finalizable if it is a monorphic
     // derived-type.
     // For polymorphic and unlimited polymorphic enities call the runtime
     // in any cases.
     std::optional<Fortran::evaluate::DynamicType> retTy =
         caller.getCallDescription().proc().GetType();
-    if (retTy && (retTy->category() == Fortran::common::TypeCategory::Derived ||
-                  retTy->IsPolymorphic() || retTy->IsUnlimitedPolymorphic())) {
+    if (!fir::isPointerType(funcType.getResults()[0]) && retTy &&
+        (retTy->category() == Fortran::common::TypeCategory::Derived ||
+         retTy->IsPolymorphic() || retTy->IsUnlimitedPolymorphic())) {
       if (retTy->IsPolymorphic() || retTy->IsUnlimitedPolymorphic()) {
         auto *bldr = &converter.getFirOpBuilder();
         stmtCtx.attachCleanup([bldr, loc, allocatedResult]() {
@@ -1056,7 +1057,7 @@ genUserCall(PreparedActualArguments &loweredActuals,
 
 /// Lower calls to intrinsic procedures with actual arguments that have been
 /// pre-lowered but have not yet been prepared according to the interface.
-static hlfir::EntityWithAttributes genIntrinsicRefCore(
+static std::optional<hlfir::EntityWithAttributes> genIntrinsicRefCore(
     PreparedActualArguments &loweredActuals,
     const Fortran::evaluate::SpecificIntrinsic &intrinsic,
     const Fortran::lower::IntrinsicArgumentLoweringRules *argLowering,
@@ -1111,6 +1112,8 @@ static hlfir::EntityWithAttributes genIntrinsicRefCore(
   auto [resultExv, mustBeFreed] = Fortran::lower::genIntrinsicCall(
       callContext.getBuilder(), loc, intrinsic.name, scalarResultType,
       operands);
+  if (!fir::getBase(resultExv))
+    return std::nullopt;
   hlfir::EntityWithAttributes resultEntity = extendedValueToHlfirEntity(
       loc, builder, resultExv, ".tmp.intrinsic_result");
   // Move result into memory into an hlfir.expr since they are immutable from
@@ -1370,7 +1373,7 @@ genIsPresentIfArgMaybeAbsent(mlir::Location loc, hlfir::Entity actual,
 }
 
 /// Lower an intrinsic procedure reference.
-static hlfir::EntityWithAttributes
+static std::optional<hlfir::EntityWithAttributes>
 genIntrinsicRef(const Fortran::evaluate::SpecificIntrinsic &intrinsic,
                 CallContext &callContext) {
   mlir::Location loc = callContext.loc;
@@ -1412,12 +1415,12 @@ genIntrinsicRef(const Fortran::evaluate::SpecificIntrinsic &intrinsic,
         .genElementalCall(loweredActuals, /*isImpure=*/!isFunction, callContext)
         .value();
   }
-  hlfir::EntityWithAttributes result =
+  std::optional<hlfir::EntityWithAttributes> result =
       genIntrinsicRefCore(loweredActuals, intrinsic, argLowering, callContext);
-  if (result.getType().isa<hlfir::ExprType>()) {
+  if (result && result->getType().isa<hlfir::ExprType>()) {
     fir::FirOpBuilder *bldr = &callContext.getBuilder();
     callContext.stmtCtx.attachCleanup(
-        [=]() { bldr->create<hlfir::DestroyOp>(loc, result); });
+        [=]() { bldr->create<hlfir::DestroyOp>(loc, *result); });
   }
   return result;
 }

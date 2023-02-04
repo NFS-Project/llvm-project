@@ -2584,6 +2584,12 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     break;
   }
 
+  case Builtin::BI__builtin_nondeterministic_value: {
+    if (SemaBuiltinNonDeterministicValue(TheCall))
+      return ExprError();
+    break;
+  }
+
   // __builtin_elementwise_abs restricts the element type to signed integers or
   // floating point types only.
   case Builtin::BI__builtin_elementwise_abs: {
@@ -2609,6 +2615,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
   case Builtin::BI__builtin_elementwise_ceil:
   case Builtin::BI__builtin_elementwise_cos:
   case Builtin::BI__builtin_elementwise_floor:
+  case Builtin::BI__builtin_elementwise_log:
   case Builtin::BI__builtin_elementwise_roundeven:
   case Builtin::BI__builtin_elementwise_sin:
   case Builtin::BI__builtin_elementwise_trunc:
@@ -15234,6 +15241,23 @@ public:
     Base::VisitStmt(E);
   }
 
+  void VisitCoroutineSuspendExpr(const CoroutineSuspendExpr *CSE) {
+    for (auto *Sub : CSE->children()) {
+      const Expr *ChildExpr = dyn_cast_or_null<Expr>(Sub);
+      if (!ChildExpr)
+        continue;
+
+      if (ChildExpr == CSE->getOperand())
+        // Do not recurse over a CoroutineSuspendExpr's operand.
+        // The operand is also a subexpression of getCommonExpr(), and
+        // recursing into it directly could confuse object management
+        // for the sake of sequence tracking.
+        continue;
+
+      Visit(Sub);
+    }
+  }
+
   void VisitCastExpr(const CastExpr *E) {
     Object O = Object();
     if (E->getCastKind() == CK_LValueToRValue)
@@ -17854,6 +17878,21 @@ bool Sema::PrepareBuiltinReduceMathOneArgCall(CallExpr *TheCall) {
     return true;
 
   TheCall->setArg(0, A.get());
+  return false;
+}
+
+bool Sema::SemaBuiltinNonDeterministicValue(CallExpr *TheCall) {
+  if (checkArgCount(*this, TheCall, 1))
+    return true;
+
+  ExprResult Arg = TheCall->getArg(0);
+  QualType TyArg = Arg.get()->getType();
+
+  if (!TyArg->isBuiltinType() && !TyArg->isVectorType())
+    return Diag(TheCall->getArg(0)->getBeginLoc(), diag::err_builtin_invalid_arg_type)
+           << 1 << /*vector, integer or floating point ty*/ 0 << TyArg;
+
+  TheCall->setType(TyArg);
   return false;
 }
 
