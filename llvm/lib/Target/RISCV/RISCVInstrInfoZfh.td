@@ -206,15 +206,16 @@ def : InstAlias<"fgt.h $rd, $rs, $rt",
                 (FLT_H GPR:$rd, FPR16:$rt, FPR16:$rs), 0>;
 def : InstAlias<"fge.h $rd, $rs, $rt",
                 (FLE_H GPR:$rd, FPR16:$rt, FPR16:$rs), 0>;
+
+let usesCustomInserter = 1 in {
+def PseudoQuietFLE_H : PseudoQuietFCMP<FPR16>;
+def PseudoQuietFLT_H : PseudoQuietFCMP<FPR16>;
+}
 } // Predicates = [HasStdExtZfh]
 
 let Predicates = [HasStdExtZfhOrZfhmin] in {
 def PseudoFLH  : PseudoFloatLoad<"flh", FPR16>;
 def PseudoFSH  : PseudoStore<"fsh", FPR16>;
-let usesCustomInserter = 1 in {
-def PseudoQuietFLE_H : PseudoQuietFCMP<FPR16>;
-def PseudoQuietFLT_H : PseudoQuietFCMP<FPR16>;
-}
 } // Predicates = [HasStdExtZfhOrZfhmin]
 
 let Predicates = [HasStdExtZhinx] in {
@@ -233,9 +234,6 @@ def : InstAlias<"fge.h $rd, $rs, $rt",
 //===----------------------------------------------------------------------===//
 
 let Predicates = [HasStdExtZfh] in {
-
-// Floating point constant -0.0
-def : Pat<(f16 (fpimmneg0)), (FSGNJN_H (FMV_H_X X0), (FMV_H_X X0))>;
 
 /// Float conversion operations
 
@@ -329,9 +327,6 @@ defm : LdPat<load, FLH, f16>;
 
 defm : StPat<store, FSH, FPR16, f16>;
 
-/// Floating point constant +0.0
-def : Pat<(f16 (fpimm0)), (FMV_H_X X0)>;
-
 /// Float conversion operations
 
 // f32 -> f16, f16 -> f32
@@ -407,11 +402,6 @@ def : Pat<(fcopysign FPR16:$rs1, FPR64:$rs2),
           (FSGNJ_H $rs1, (FCVT_H_D $rs2, 0b111))>;
 def : Pat<(fcopysign FPR64:$rs1, FPR16:$rs2), (FSGNJ_D $rs1, (FCVT_D_H $rs2))>;
 } // Predicates = [HasStdExtZfhOrZfhmin, HasStdExtD]
-
-let Predicates = [HasStdExtZfhmin, NoStdExtZfh] in {
-// Floating point constant -0.0
-def : Pat<(f16 (fpimmneg0)), (FCVT_H_S (FSGNJN_S (FMV_W_X X0), (FMV_W_X X0)), 0b111)>;
-} // Predicates = [HasStdExtZfhmin, NoStdExtZfh]
 
 let Predicates = [HasStdExtZfhmin, NoStdExtZfh, IsRV32] in {
 // half->[u]int. Round-to-zero must be used.

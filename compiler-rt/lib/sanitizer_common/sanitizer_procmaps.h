@@ -80,7 +80,15 @@ class MemoryMappingLayoutBase {
 class MemoryMappingLayout : public MemoryMappingLayoutBase {
  public:
   explicit MemoryMappingLayout(bool cache_enabled);
-  virtual ~MemoryMappingLayout();
+
+// This destructor cannot be virtual, as it would cause an operator new() linking
+// failures in hwasan test cases. However non-virtual destructors emit warnings
+// in macOS build, hence disabling those
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
+  ~MemoryMappingLayout();
+#pragma clang diagnostic pop
+
   virtual bool Next(MemoryMappedSegment *segment) override;
   virtual bool Error() const override;
   virtual void Reset() override;

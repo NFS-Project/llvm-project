@@ -2745,6 +2745,46 @@ struct FormatStyle {
   /// \version 3.7
   std::string MacroBlockEnd;
 
+  /// A list of macros of the form \c <definition>=<expansion> .
+  ///
+  /// Code will be parsed with macros expanded, in order to determine how to
+  /// interpret and format the macro arguments.
+  ///
+  /// For example, the code:
+  /// \code
+  ///   A(a*b);
+  /// \endcode
+  ///
+  /// will usually be interpreted as a call to a function A, and the
+  /// multiplication expression will be formatted as `a * b`.
+  ///
+  /// If we specify the macro definition:
+  /// \code{.yaml}
+  ///   Macros:
+  ///   - A(x)=x
+  /// \endcode
+  ///
+  /// the code will now be parsed as a declaration of the variable b of type a*,
+  /// and formatted as `a* b` (depending on pointer-binding rules).
+  ///
+  /// Features and restrictions:
+  ///  * Both function-like macros and object-like macros are supported.
+  ///  * Macro arguments must be used exactly once in the expansion.
+  ///  * No recursive expansion; macros referencing other macros will be
+  ///    ignored.
+  ///  * Overloading by arity is supported: for example, given the macro
+  ///    definitions A=x, A()=y, A(a)=a
+  ///
+  /// \code
+  ///    A; -> x;
+  ///    A(); -> y;
+  ///    A(z); -> z;
+  ///    A(a, b); // will not be expanded.
+  /// \endcode
+  ///
+  /// \version 17.0
+  std::vector<std::string> Macros;
+
   /// The maximum number of consecutive empty lines to keep.
   /// \code
   ///    MaxEmptyLinesToKeep: 1         vs.     MaxEmptyLinesToKeep: 0
@@ -2929,6 +2969,21 @@ struct FormatStyle {
     ///          cccccccccccccccccccc()
     /// \endcode
     PCIS_NextLine,
+    /// Put all constructor initializers on the next line if they fit.
+    /// Otherwise, put each one on its own line.
+    /// \code
+    ///    Constructor()
+    ///        : a(), b()
+    ///
+    ///    Constructor()
+    ///        : aaaaaaaaaaaaaaaaaaaa(), bbbbbbbbbbbbbbbbbbbb(), ddddddddddddd()
+    ///
+    ///    Constructor()
+    ///        : aaaaaaaaaaaaaaaaaaaa(),
+    ///          bbbbbbbbbbbbbbbbbbbb(),
+    ///          cccccccccccccccccccc()
+    /// \endcode
+    PCIS_NextLineOnly,
   };
 
   /// The pack constructor initializers style to use.
@@ -3659,6 +3714,16 @@ struct FormatStyle {
   /// \version 7
   bool SpaceBeforeInheritanceColon;
 
+  /// If ``true``, a space will be add before a JSON colon.
+  /// \code
+  ///    true:                                  false:
+  ///    {                                      {
+  ///      "key" : "value"              vs.       "key": "value"
+  ///    }                                      }
+  /// \endcode
+  /// \version 17
+  bool SpaceBeforeJsonColon;
+
   /// Different ways to put a space before opening parentheses.
   enum SpaceBeforeParensStyle : int8_t {
     /// Never put a space before opening parentheses.
@@ -4224,7 +4289,7 @@ struct FormatStyle {
            Language == R.Language &&
            LambdaBodyIndentation == R.LambdaBodyIndentation &&
            LineEnding == R.LineEnding && MacroBlockBegin == R.MacroBlockBegin &&
-           MacroBlockEnd == R.MacroBlockEnd &&
+           MacroBlockEnd == R.MacroBlockEnd && Macros == R.Macros &&
            MaxEmptyLinesToKeep == R.MaxEmptyLinesToKeep &&
            NamespaceIndentation == R.NamespaceIndentation &&
            NamespaceMacros == R.NamespaceMacros &&
@@ -4268,6 +4333,7 @@ struct FormatStyle {
            SpaceBeforeCtorInitializerColon ==
                R.SpaceBeforeCtorInitializerColon &&
            SpaceBeforeInheritanceColon == R.SpaceBeforeInheritanceColon &&
+           SpaceBeforeJsonColon == R.SpaceBeforeJsonColon &&
            SpaceBeforeParens == R.SpaceBeforeParens &&
            SpaceBeforeParensOptions == R.SpaceBeforeParensOptions &&
            SpaceAroundPointerQualifiers == R.SpaceAroundPointerQualifiers &&

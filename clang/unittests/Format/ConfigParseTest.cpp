@@ -189,6 +189,7 @@ TEST(ConfigParseTest, ParsesConfigurationBools) {
   CHECK_PARSE_BOOL(SpaceBeforeCpp11BracedList);
   CHECK_PARSE_BOOL(SpaceBeforeCtorInitializerColon);
   CHECK_PARSE_BOOL(SpaceBeforeInheritanceColon);
+  CHECK_PARSE_BOOL(SpaceBeforeJsonColon);
   CHECK_PARSE_BOOL(SpaceBeforeRangeBasedForLoopColon);
   CHECK_PARSE_BOOL(SpaceBeforeSquareBrackets);
 
@@ -400,6 +401,8 @@ TEST(ConfigParseTest, ParsesConfiguration) {
               PackConstructorInitializers, FormatStyle::PCIS_CurrentLine);
   CHECK_PARSE("PackConstructorInitializers: NextLine",
               PackConstructorInitializers, FormatStyle::PCIS_NextLine);
+  CHECK_PARSE("PackConstructorInitializers: NextLineOnly",
+              PackConstructorInitializers, FormatStyle::PCIS_NextLineOnly);
   // For backward compatibility:
   CHECK_PARSE("BasedOnStyle: Google\n"
               "ConstructorInitializerAllOnOneLineOrOnePerLine: true\n"
